@@ -1,0 +1,285 @@
+{
+  "name": "Advanced AI Agent with Memory Search",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "smart-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 400],
+      "webhookId": "smart-agent"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse incoming request\nconst body = $input.item.json.body || $input.item.json;\n\nreturn {\n  query: body.query || body.message || \"\",\n  conversationId: body.conversationId || \"default\",\n  agentName: body.agentName || \"Smart Assistant\",\n  maxMemories: body.maxMemories || 5,\n  includeContext: body.includeContext !== false,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "parse-request",
+      "name": "Parse Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.includeContext }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-context",
+      "name": "Need Context?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [640, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Simulate memory/RAG search\n// In production, this would query your vector database\nconst query = $input.item.json.query;\nconst maxMemories = $input.item.json.maxMemories;\n\n// Sample memories (replace with actual vector search)\nconst memories = [\n  {\n    content: \"I am an AI assistant with RAG memory capabilities.\",\n    relevance: 0.95,\n    timestamp: new Date(Date.now() - 3600000).toISOString()\n  },\n  {\n    content: \"n8n is a powerful workflow automation tool.\",\n    relevance: 0.87,\n    timestamp: new Date(Date.now() - 7200000).toISOString()\n  },\n  {\n    content: \"RAG stands for Retrieval Augmented Generation.\",\n    relevance: 0.82,\n    timestamp: new Date(Date.now() - 10800000).toISOString()\n  }\n];\n\n// Filter and sort by relevance\nconst relevantMemories = memories\n  .sort((a, b) => b.relevance - a.relevance)\n  .slice(0, maxMemories);\n\n// Format context\nconst context = relevantMemories\n  .map((m, i) => `${i + 1}. ${m.content} (relevance: ${(m.relevance * 100).toFixed(0)}%)`)\n  .join('\\n');\n\nreturn {\n  ...($input.item.json),\n  memories: relevantMemories,\n  context: context,\n  memoryCount: relevantMemories.length\n};"
+      },
+      "id": "search-memory",
+      "name": "Search Memory (RAG)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pass through without context\nreturn {\n  ...($input.item.json),\n  context: \"\",\n  memories: [],\n  memoryCount: 0\n};"
+      },
+      "id": "skip-memory",
+      "name": "Skip Memory",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [860, 500]
+    },
+    {
+      "parameters": {},
+      "id": "merge-paths",
+      "name": "Merge",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [1080, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build comprehensive prompt\nconst data = $input.item.json;\nconst query = data.query;\nconst context = data.context || \"\";\nconst agentName = data.agentName;\n\nlet systemPrompt = `You are ${agentName}, an advanced AI assistant with long-term memory capabilities.\n\nKey Capabilities:\n- Remembering past conversations\n- Providing context-aware responses\n- Learning from interactions\n- Helping with various tasks\n\nPersonality: Friendly, helpful, knowledgeable, and professional.`;\n\nif (context && context.trim() !== \"\") {\n  systemPrompt += `\\n\\n## Relevant Information from Memory:\\n${context}\\n\\nUse this context to provide more informed and personalized responses.`;\n}\n\nreturn {\n  systemPrompt: systemPrompt,\n  userMessage: query,\n  agentName: agentName,\n  hasContext: context.length > 0,\n  contextLength: context.length,\n  memoryCount: data.memoryCount || 0\n};"
+      },
+      "id": "build-prompt",
+      "name": "Build AI Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 400]
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "model": "gpt-4",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "={{ $json.systemPrompt }}"
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.userMessage }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 1500,
+          "topP": 1,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        }
+      },
+      "id": "openai-gpt4",
+      "name": "OpenAI GPT-4",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [1520, 400],
+      "credentials": {
+        "openAiApi": {
+          "id": "1",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format final response\nconst aiResponse = $input.item.json;\nconst buildPromptData = $node[\"Build AI Prompt\"].json;\nconst originalData = $node[\"Parse Request\"].json;\n\nconst responseText = aiResponse.message?.content || \n                     aiResponse.choices?.[0]?.message?.content || \n                     aiResponse.text || \n                     \"\";\n\nreturn {\n  success: true,\n  agent: originalData.agentName,\n  conversationId: originalData.conversationId,\n  query: originalData.query,\n  response: responseText,\n  metadata: {\n    timestamp: new Date().toISOString(),\n    model: \"gpt-4\",\n    memoriesUsed: buildPromptData.memoryCount,\n    hasContext: buildPromptData.hasContext,\n    contextLength: buildPromptData.contextLength,\n    responseLength: responseText.length\n  }\n};"
+      },
+      "id": "format-output",
+      "name": "Format Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1740, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "respond",
+      "name": "Send Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1960, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Store this interaction for future memory\n// Connect to your database or vector store here\nconst data = $input.item.json;\n\nconst memoryEntry = {\n  query: data.query,\n  response: data.response,\n  timestamp: data.metadata.timestamp,\n  conversationId: data.conversationId,\n  agentName: data.agent\n};\n\n// TODO: Store in vector database\n// Example: await vectorStore.addMemory(memoryEntry);\n\nreturn memoryEntry;"
+      },
+      "id": "save-interaction",
+      "name": "Save to Memory",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1740, 600]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parse Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Request": {
+      "main": [
+        [
+          {
+            "node": "Need Context?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Need Context?": {
+      "main": [
+        [
+          {
+            "node": "Search Memory (RAG)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Memory (RAG)": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip Memory": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Build AI Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build AI Prompt": {
+      "main": [
+        [
+          {
+            "node": "OpenAI GPT-4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI GPT-4": {
+      "main": [
+        [
+          {
+            "node": "Format Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Output": {
+      "main": [
+        [
+          {
+            "node": "Send Response",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save to Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "id": "advanced-ai-agent",
+  "meta": {
+    "instanceId": "n8n-instance"
+  },
+  "tags": []
+}
