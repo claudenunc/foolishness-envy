@@ -1,0 +1,109 @@
+{
+  "name": "Research Agent",
+  "description": "Agent for research tasks with web search and memory",
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "research-agent"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract research query\nconst query = $input.item.json.query || '';\nconst context = $input.item.json.context || '';\n\nreturn [{\n  json: {\n    query: query,\n    context: context,\n    search_query: query\n  }\n}];"
+      },
+      "name": "Extract Query",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "options": {
+          "temperature": 0.5,
+          "maxTokens": 2000
+        }
+      },
+      "name": "Generate Research Plan",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [650, 200]
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 3000
+        }
+      },
+      "name": "Synthesize Results",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Query": {
+      "main": [
+        [
+          {
+            "node": "Generate Research Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Research Plan": {
+      "main": [
+        [
+          {
+            "node": "Synthesize Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Synthesize Results": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
